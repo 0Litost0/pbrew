@@ -53,7 +53,7 @@ pbrew/
 │   ├── source/                 # 数据源抽象
 │   │   ├── source.go           # Source 接口定义
 │   │   ├── local.go            # 本地目录实现
-│   │   └── git.go              # Git 仓库实现（clone + 本地缓存）
+│   │   └── git.go              # Git 仓库实现（临时 clone 到 /tmp）
 │   ├── registry/               # 组件发现与索引
 │   │   ├── registry.go         # 遍历 + 索引读取
 │   │   └── index.go            # _index.json 解析
@@ -82,7 +82,6 @@ pbrew/
             ├── list.txt
             ├── install_rule.txt
             ├── install_skill.txt
-            ├── install_hook.txt
             ├── update.txt
             └── uninstall.txt
 ```
@@ -440,6 +439,8 @@ flowchart LR
 
 ### 4.7 Hook 适配的特殊考量
 
+> ⚠️ **本节内容属于预研/后续迭代，不属于 MVP 范围。** MVP 阶段仅支持 Rule 和 Skill 两种组件类型（详见需求分析 §8.4）。Hook 相关设计保留供后续迭代参考，实际实现时需根据最新的 Agent 规范更新。
+
 Hook 是三类组件中适配复杂度最高的，原因如下：
 
 **1. 载体差异**
@@ -574,7 +575,9 @@ type Component struct {
 ```go
 // model/record.go
 
-// InstalledFile 记录单个已安装文件的相对路径
+// InstalledFile 记录单个已安装文件的相对路径（相对于 Agent 根目录）
+// Rule 示例: "rules/git-conventions/git-conventions.md"
+// Skill 示例: "skills/commit/SKILL.md"
 type InstalledFile struct {
     RelPath string `json:"relPath"`
 }
@@ -589,7 +592,7 @@ type InstallRecord struct {
     Source  string         `json:"source"`
     // Rule/Skill 使用 Files 记录已安装文件清单
     Files   []InstalledFile `json:"files,omitempty"`
-    // Hook 使用 HookHandlers 记录已安装的 handler 位置
+    // Hook 使用 HookHandlers 记录已安装的 handler 位置（后续迭代）
     HookHandlers []HookHandlerRecord `json:"hookHandlers,omitempty"`
 }
 
@@ -654,6 +657,8 @@ sequenceDiagram
     CLI-->>User: 安装成功提示
 ```
 
+> 图中 Hook 分支属于后续迭代，MVP 阶段仅实现 Rule 和 Skill 分支。
+
 ### 6.2 pbrew uninstall 流程
 
 ```mermaid
@@ -689,6 +694,9 @@ sequenceDiagram
     CLI->>Rec: 从记录中移除该组件条目
     CLI->>Rec: 写入 _config.json
     CLI-->>User: 卸载成功提示
+```
+
+> 图中 Hook 分支属于后续迭代，MVP 阶段仅实现 Rule 和 Skill 分支。
 ```
 
 ### 6.3 pbrew update 流程
@@ -810,6 +818,8 @@ flowchart TD
 
 #### 7.1.3 Hook 适配流程（Claude ↔ Canonical ↔ CodeBuddy）
 
+> ⚠️ **后续迭代：** Hook 组件不属于 MVP 范围，本节内容保留供后续参考。
+
 ```mermaid
 flowchart TD
     subgraph "Claude → Canonical"
@@ -839,13 +849,13 @@ Markdown 文件结构：
 <markdown body>
 ```
 
-解析策略：
+解析策略（基于 yaml.v3 Node API，保证 round-trip 保真）：
 1. 按行扫描，找到首行 `---` 和第二个 `---`
-2. 中间部分用 `gopkg.in/yaml.v3` 解析为 `map[string]interface{}`
-3. 修改 map 内容
-4. 重新序列化为 YAML，拼回原文件
+2. 中间部分用 `gopkg.in/yaml.v3` 的 `Node` API 解析为 AST 树
+3. 通过遍历 `Content` 数组定位目标字段对应的 `MappingNode`，执行增删改操作
+4. 仅序列化修改后的 YAML 节点，拼回原文件
 
-> 注意：必须保留原始 Markdown 正文不变，仅修改 frontmatter 部分。序列化时需保持 YAML 缩进风格一致。
+> 注意：使用 `Node` API 而非 `map[string]interface{}` 的原因：后者在 round-trip 时会丢失注释、变更引号风格、改变键顺序，导致文件 diff 噪声。Node API 操作 AST 树，仅修改目标字段，保留其余内容完全不变。
 
 #### 7.1.5 路径与变量替换
 
@@ -880,18 +890,33 @@ type LocalSource struct {
 
 ```go
 type GitSource struct {
-    url      string // Git 仓库 URL
-    cacheDir string // 本地缓存目录（~/.pbrew/cache/<repo-hash>）
+    url     string // Git 仓库 URL
+    tempDir string // 临时克隆目录（/tmp/pbrew-<random>）
 }
 ```
 
-策略：
-1. 首次访问时 `git clone` 到 `cacheDir`
-2. 后续访问先 `git pull --rebase` 更新
-3. 以 `cacheDir` 为根，行为与 `LocalSource` 一致
-4. `Root()` 返回 `cacheDir`
+策略（读写统一）：
+1. 命令执行时 `git clone` 到 `/tmp/pbrew-<random>/` 临时目录
+2. 以 `tempDir` 为根，行为与 `LocalSource` 一致
+3. `Root()` 返回 `tempDir`
+4. 命令结束时调用 `Close()` 清理临时目录
 
-缓存目录路径计算：`~/.pbrew/cache/` + SHA256(url)[:16]
+Source 接口增加 `Close() error` 方法，`LocalSource` 的实现为空操作：
+
+```go
+type Source interface {
+    Root() string
+    ReadDir(relPath string) (map[string][]byte, error)
+    Exists(relPath string) bool
+    WriteDir(relPath string, files map[string][]byte) error  // publish 使用
+    Close() error
+}
+```
+
+设计考量：
+- **每次克隆而非缓存**：保证数据源状态与仓库最新一致，消除缓存同步、过期、并发竞争等问题
+- **读写路径统一**：publish 等写操作同样在临时目录中完成修改后，提示用户手动 push，无需区分缓存/临时两套机制
+- **生命周期**：`GitSource` 在 CLI 命令入口处创建，命令退出前调用 `Close()` 清理，确保临时目录不泄露
 
 > MVP 不处理私有仓库认证，要求仓库可公开 clone 或用户已配置好 SSH key / credential helper。
 
@@ -927,14 +952,16 @@ func RecordFilePath(profile agent.AgentProfile, scope, projectRoot string) (stri
 
 所有路径计算均基于 `AgentProfile` 数据驱动，**不包含 if agent == "claude" 分支逻辑**。
 
+> **Rule 命名空间约定**：Rule 组件安装到 `<agent-root>/rules/<component-name>/` 子目录下，文件名保持原始名称不变。这样不同组件的同名文件不会冲突（如两个组件都有 `conventions.md` 时，分别在 `rules/A/conventions.md` 和 `rules/B/conventions.md`）。Claude Code 和 CodeBuddy Code 均支持递归扫描 `rules/` 下的子目录。
+
 **安装路径映射表（由 AgentProfile 驱动）：**
 
 | Agent | Scope | Rule 目标目录 | Skill 目标目录 | Hook 存储位置 | 记录文件路径 |
 |-------|-------|-------------|--------------|-------------|-------------|
-| claude | user | `~/.claude/rules/` | `~/.claude/skills/<name>/` | `~/.claude/settings.json` | `~/.claude/.pbrew/_config.json` |
-| claude | project | `<project>/.claude/rules/` | `<project>/.claude/skills/<name>/` | `<project>/.claude/settings.json` | `<project>/.claude/.pbrew/_config.json` |
-| codebuddy | user | `~/.codebuddy/rules/` | `~/.codebuddy/skills/<name>/` | `~/.codebuddy/settings.json` | `~/.codebuddy/.pbrew/_config.json` |
-| codebuddy | project | `<project>/.codebuddy/rules/` | `<project>/.codebuddy/skills/<name>/` | `<project>/.codebuddy/settings.json` | `<project>/.codebuddy/.pbrew/_config.json` |
+| claude | user | `~/.claude/rules/<component-name>/` | `~/.claude/skills/<name>/` | `~/.claude/settings.json` | `~/.claude/.pbrew/_config.json` |
+| claude | project | `<project>/.claude/rules/<component-name>/` | `<project>/.claude/skills/<name>/` | `<project>/.claude/settings.json` | `<project>/.claude/.pbrew/_config.json` |
+| codebuddy | user | `~/.codebuddy/rules/<component-name>/` | `~/.codebuddy/skills/<name>/` | `~/.codebuddy/settings.json` | `~/.codebuddy/.pbrew/_config.json` |
+| codebuddy | project | `<project>/.codebuddy/rules/<component-name>/` | `<project>/.codebuddy/skills/<name>/` | `<project>/.codebuddy/settings.json` | `<project>/.codebuddy/.pbrew/_config.json` |
 
 ### 7.5 installer — 安装编排
 
@@ -950,7 +977,7 @@ type InstallParams struct {
 }
 ```
 
-执行步骤根据组件类型分支：
+执行步骤根据组件类型分支（MVP 仅实现 Rule / Skill，Hook 为后续迭代）：
 
 **Rule / Skill：**
 1. 通过 `registry.FindComponent` 定位组件
@@ -1132,6 +1159,8 @@ flowchart TD
     A1 & A2 & A3 & A4 --> B1 & B2 & B3 & B4 --> C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 & C9
 ```
 
+> 图中标记 Hook 的测试项（B4、C5、C9）属于后续迭代，MVP 阶段不实现。
+
 ### 10.2 单元测试 — adapter
 
 adapter 基于 Canonical 中转，每个方向的转换都是纯函数：
@@ -1180,7 +1209,9 @@ func TestCanonicalToCodebuddyRule(t *testing.T) {
 }
 ```
 
-### 10.3 集成测试 — Hook settings.json 合并
+### 10.3 集成测试 — Hook settings.json 合并（后续迭代）
+
+> Hook 测试属于后续迭代，MVP 阶段不实现。
 
 ```go
 func TestHookMerge(t *testing.T) {
@@ -1214,34 +1245,32 @@ func TestHookMerge(t *testing.T) {
 
 ### 10.4 E2E 测试 — testscript
 
-Hook 安装场景示例：
+> Hook 安装场景示例属于后续迭代，MVP 仅覆盖 Rule 和 Skill 安装。
+
+Rule 安装场景示例（MVP）：
 
 ```txt
-# e2e/testdata/script/install_hook.txt
+# e2e/testdata/script/install_rule.txt
 
-# 准备：设置本地数据源（含 hook 组件）
-mkdir $HOME/.pbrew/repo/hooks/pre-commit-lint
-cp ../../../testdata/fixtures/repo/hooks/pre-commit-lint/.pbrew.json $HOME/.pbrew/repo/hooks/pre-commit-lint/.pbrew.json
-
-# hook 组件的 settings.json 包含 hooks 字段
-cp ../../../testdata/fixtures/repo/hooks/pre-commit-lint/settings.json $HOME/.pbrew/repo/hooks/pre-commit-lint/settings.json
+# 准备：设置本地数据源（含 rule 组件）
+mkdir $HOME/.pbrew/repo/rules/git-conventions
+cp ../../../testdata/fixtures/repo/rules/git-conventions/.pbrew.json $HOME/.pbrew/repo/rules/git-conventions/.pbrew.json
+cp ../../../testdata/fixtures/repo/rules/git-conventions/git-conventions.md $HOME/.pbrew/repo/rules/git-conventions/git-conventions.md
 
 exec pbrew config set source $HOME/.pbrew/repo
 
-# 安装 Hook 到 codebuddy
-exec pbrew install pre-commit-lint --agent codebuddy --scope user
-stdout 'installed pre-commit-lint'
+# 安装 Rule 到 codebuddy
+exec pbrew install git-conventions --agent codebuddy --scope user
+stdout 'installed git-conventions'
 
-# 验证 settings.json 包含 hooks
-exists $HOME/.codebuddy/settings.json
-exec cat $HOME/.codebuddy/settings.json
-stdout 'PreToolUse'
+# 验证安装路径（子目录形式）
+exists $HOME/.codebuddy/rules/git-conventions/git-conventions.md
 
 # 验证安装记录
 exists $HOME/.codebuddy/.pbrew/_config.json
 exec cat $HOME/.codebuddy/.pbrew/_config.json
-stdout 'pre-commit-lint'
-stdout '"hook"'
+stdout 'git-conventions'
+stdout '"rule"'
 ```
 
 ### 10.5 测试覆盖率目标
@@ -1322,14 +1351,10 @@ pbrew/
 │           │   └── git-conventions/
 │           │       ├── .pbrew.json
 │           │       └── git-conventions.md
-│           ├── skills/
-│           │   └── commit/
-│           │       ├── .pbrew.json
-│           │       └── SKILL.md
-│           └── hooks/
-│               └── pre-commit-lint/
+│           └── skills/
+│               └── commit/
 │                   ├── .pbrew.json
-│                   └── settings.json   # 仅含 hooks 字段
+│                   └── SKILL.md
 └── e2e/
     ├── main_test.go
     └── testdata/
@@ -1338,22 +1363,20 @@ pbrew/
 # 用户目录（安装后状态）
 ~/
 ├── .pbrew/
-│   ├── config                              # 全局配置
-│   └── cache/
-│       └── a1b2c3d4e5f6/                  # Git 数据源缓存
+│   └── config                              # 全局配置
 ├── .codebuddy/
 │   ├── rules/
-│   │   └── git-conventions.md              # 已安装的 Rule
+│   │   └── git-conventions/
+│   │       └── git-conventions.md          # 已安装的 Rule（子目录形式）
 │   ├── skills/
 │   │   └── commit/
 │   │       └── SKILL.md                   # 已安装的 Skill
-│   ├── settings.json                       # 含合并后的 hooks
 │   └── .pbrew/
 │       └── _config.json                   # 用户级安装记录
 └── .claude/
     ├── rules/
-    │   └── git-conventions.md
-    ├── settings.json                       # 含合并后的 hooks
+    │   └── git-conventions/
+    │       └── git-conventions.md
     └── .pbrew/
         └── _config.json                   # 用户级安装记录
 
@@ -1362,14 +1385,14 @@ my-project/
 ├── .git/
 ├── .codebuddy/
 │   ├── rules/
-│   │   └── git-conventions.md
-│   ├── settings.json
+│   │   └── git-conventions/
+│   │       └── git-conventions.md
 │   └── .pbrew/
 │       └── _config.json                   # 项目级安装记录
 └── .claude/
     ├── rules/
-    │   └── git-conventions.md
-    ├── settings.json
+    │   └── git-conventions/
+    │       └── git-conventions.md
     └── .pbrew/
         └── _config.json                   # 项目级安装记录
 ```

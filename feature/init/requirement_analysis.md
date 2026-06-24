@@ -132,7 +132,7 @@ pbrew install <component-name...> --agent <agent-id> [--scope <scope>]
 4. 在该 Agent 目录下的 `.pbrew/_config.json` 中更新安装记录，记录内容包括组件名称、版本、来源以及**已安装文件的路径信息**
 
 > **文件路径记录说明**：
-> - Rule 组件：记录已安装的文件路径（Rule 可以是单个 `.md` 文件，也可以是子目录下的 `.md` 文件，两个 Agent 均支持递归发现 `rules/` 下的子目录）
+> - Rule 组件：记录已安装的文件路径，采用 `<component-name>/<filename>.md` 子目录形式（如 `rules/git-conventions/git-conventions.md`），两个 Agent 均支持递归发现 `rules/` 下的子目录
 > - Skill 组件：记录已安装的 Skill 子目录路径（卸载时直接删除整个子目录）
 
 ### 5.4 AI 组件的更新（pbrew update）
