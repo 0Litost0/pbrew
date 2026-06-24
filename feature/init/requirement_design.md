@@ -9,7 +9,7 @@
 | 语言 | Go 1.23+ | AI 训练数据充足、单二进制分发、标准库覆盖文件操作 |
 | CLI 框架 | `github.com/spf13/cobra` | Go CLI 事实标准，AI 生成代码最可靠 |
 | YAML 解析 | `gopkg.in/yaml.v3` | 解析 Markdown frontmatter 的唯一第三方依赖 |
-| JSON 解析 | `encoding/json` | 标准库 |
+| JSON 解析 | `encoding/json` | 标准库（同时用于配置文件与组件元数据） |
 | 文件哈希 | `crypto/sha256` | 标准库 |
 | Git 操作 | 调用系统 `git` 命令 | 比任一 Go Git 库更简单可靠 |
 | 单元测试 | `testing` + `github.com/stretchr/testify` | 标准库 + 轻量断言 |
@@ -93,7 +93,7 @@ pbrew/
 | `cmd/` | 参数解析、校验、调用 internal、输出结果 | 业务逻辑 |
 | `model/` | 纯数据结构定义 | 任何 I/O 操作 |
 | `agent/` | Agent 描述的注册与查询 | 任何 I/O 操作 |
-| `config/` | 读写 `~/.pbrew/config` | 解释配置语义 |
+| `config/` | 读写 `~/.pbrew/config.json` | 解释配置语义 |
 | `source/` | 将数据源抽象为统一的组件目录访问接口 | 组件内容的解析或转换 |
 | `registry/` | 发现和列出可用组件 | 组件的安装或转换 |
 | `adapter/` | 文件内容的格式转换（纯函数），通过 Canonical 中转 | 文件 I/O、路径计算 |
@@ -433,7 +433,7 @@ flowchart LR
 
 | 组件类型 | 转换逻辑 |
 |---------|---------|
-| Rule | 写入 frontmatter：输出 `alwaysApply`、`enabled: true`、`paths`（如有）；截断 `description` 至 1024 字符 |
+| Rule | 写入 frontmatter：输出 `alwaysApply`、`enabled: true`、`paths`（如有）；截断 `description` 至 1024 字符；若 `AlwaysApply: false` 且 `Paths` 为空，输出 warning 提醒用户该规则在 CodeBuddy 中不会被加载 |
 | Skill | 写入 SKILL.md frontmatter：跳过 `when_to_use`、`disallowed-tools`；截断 `description` 至 1024 字符 |
 | Hook | 序列化为 settings.json 的 `hooks` 字段：保留所有 handler 类型（command、prompt、http、agent）；跳过 CodeBuddy 不支持的事件类型 |
 
@@ -896,7 +896,7 @@ type GitSource struct {
 ```
 
 策略（读写统一）：
-1. 命令执行时 `git clone` 到 `/tmp/pbrew-<random>/` 临时目录
+1. 命令执行时 `git clone --depth 1` 到 `/tmp/pbrew-<random>/` 临时目录（浅克隆，只取最新快照，减少网络与磁盘开销）
 2. 以 `tempDir` 为根，行为与 `LocalSource` 一致
 3. `Root()` 返回 `tempDir`
 4. 命令结束时调用 `Close()` 清理临时目录
@@ -953,6 +953,8 @@ func RecordFilePath(profile agent.AgentProfile, scope, projectRoot string) (stri
 所有路径计算均基于 `AgentProfile` 数据驱动，**不包含 if agent == "claude" 分支逻辑**。
 
 > **Rule 命名空间约定**：Rule 组件安装到 `<agent-root>/rules/<component-name>/` 子目录下，文件名保持原始名称不变。这样不同组件的同名文件不会冲突（如两个组件都有 `conventions.md` 时，分别在 `rules/A/conventions.md` 和 `rules/B/conventions.md`）。Claude Code 和 CodeBuddy Code 均支持递归扫描 `rules/` 下的子目录。
+>
+> **组件目录扁平化约束**：组件源目录内不允许嵌套子目录（如 `rules/git-conventions/docs/extra.md` 是非法的），所有文件必须平铺在组件根目录下。因此安装后的 Rule 路径格式始终为 `rules/<component-name>/<filename>.md`，卸载时只需删除已记录的文件并清理空目录，无需递归处理子目录。
 
 **安装路径映射表（由 AgentProfile 驱动）：**
 
@@ -973,7 +975,7 @@ type InstallParams struct {
     Agent         string
     Scope         string
     Source        source.Source
-    Force         bool
+    Force         bool  // --force/-y：跳过交互确认，覆盖已有文件时不提示
 }
 ```
 
@@ -1002,16 +1004,19 @@ uninstall 和 update 本质是 install 的变体：
 
 ### 7.6 config — 配置管理
 
-配置文件 `~/.pbrew/config` 采用 INI 格式：
+配置文件 `~/.pbrew/config.json` 采用 JSON 格式：
 
-```ini
-[source]
-url = https://github.com/user/ai-components.git
+```json
+{
+  "source": {
+    "url": "https://github.com/user/ai-components.git"
+  }
+}
 ```
 
 ```go
 type Config struct {
-    SourceURL string
+    SourceURL string `json:"sourceUrl"` // 内部扁平存储，JSON 读写使用标准库 encoding/json
 }
 
 func Load() (*Config, error)
@@ -1020,7 +1025,12 @@ func (c *Config) Get(key string) string
 func (c *Config) Set(key, value string)
 ```
 
-`Set`/`Get` 支持点分路径（如 `source.url`），映射到 INI 的 section + key。
+选择 JSON 格式的理由：
+- Go 标准库原生支持，无需引入第三方 INI 解析库
+- 当前配置项极少（仅 `source`），JSON 足够简洁
+- 与项目中其他 JSON 文件（`.pbrew.json`、`_config.json`、`_index.json`）格式统一
+
+`Set`/`Get` 支持点分路径（如 `source.url`），映射到 JSON 嵌套字段。
 
 ## 8. CLI 命令定义
 
@@ -1062,11 +1072,12 @@ pre-commit-lint   hook     0.1.0      提交前自动运行 lint
 ### 8.4 install 命令
 
 ```
-pbrew install <name...> --agent <agent> [--scope <scope>]
+pbrew install <name...> --agent <agent> [--scope <scope>] [--force]
 ```
 
 - `--agent`：必填，值为具体 Agent 标识（如 `claude`、`codebuddy`），具体值由 Agent 注册表驱动，CLI 只做存在性校验
 - `--scope`：可选，值为 `user` 或 `project`（默认 `project`）
+- `--force` / `-y`：可选，跳过所有交互确认（如文件覆盖提示），适用于 CI/CD 或脚本批量安装场景
 
 ### 8.5 update 命令
 
@@ -1363,7 +1374,7 @@ pbrew/
 # 用户目录（安装后状态）
 ~/
 ├── .pbrew/
-│   └── config                              # 全局配置
+│   └── config.json                           # 全局配置
 ├── .codebuddy/
 │   ├── rules/
 │   │   └── git-conventions/

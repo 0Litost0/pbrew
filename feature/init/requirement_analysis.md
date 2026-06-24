@@ -8,7 +8,7 @@
 
 ### 1.2 AI 组件的原子化
 
-每个 AI 组件是**原子化、自闭合**的——即每个组件拥有一个独立的目录，目录内包含组件的所有文件以及一个 `.pbrew.json` 元数据文件。
+每个 AI 组件是**原子化、自闭合**的——即每个组件拥有一个独立的目录，目录内包含组件的所有文件以及一个 `.pbrew.json` 元数据文件。组件目录内**不允许嵌套子目录**（如 `rules/git-conventions/docs/extra.md`），所有文件必须平铺在组件根目录下。这一约束确保安装时文件路径可预测、卸载时可完整清理。
 
 `.pbrew.json` 声明当前组件的基本信息：
 
@@ -98,7 +98,7 @@ pbrew config get source
 pbrew config list
 ```
 
-配置文件存储在 `~/.pbrew/config`（INI 格式）。
+配置文件存储在 `~/.pbrew/config.json`（JSON 格式）。
 
 执行 `list` / `install` / `update` 前会检测 `source` 是否已设置，未设置则提示用户先配置。
 
@@ -198,10 +198,10 @@ repo/
 ├── rules/
 │   ├── git-conventions/
 │   │   ├── .pbrew.json               # 组件元数据
-│   │   └── git-conventions.md        # 规则正文
+│   │   └── git-conventions.md        # 规则正文（扁平文件，无子目录）
 │   └── api-style/
 │       ├── .pbrew.json
-│       └── ...
+│       └── api-style.md
 └── skills/
     ├── commit/
     │   ├── .pbrew.json
@@ -258,6 +258,8 @@ Claude → CodeBuddy 方向转换时，`alwaysApply` 的设置不应一律为 `t
 | 已有 `alwaysApply` | 保持原值 | 无需改动 |
 
 同时始终补充 `enabled: true`。
+
+> **⚠️ 语义差异提醒**：当转换结果为 `alwaysApply: false` 且无 `paths` 时，该规则在 CodeBuddy Code 中**不会被加载**（而 Claude Code 仍可触发）。pbrew 在安装此类规则到 CodeBuddy 时应输出 warning 提醒用户。
 
 ### 7.2 Rule 内容中 `@` 引用路径的替换
 
