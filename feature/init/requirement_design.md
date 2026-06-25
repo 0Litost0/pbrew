@@ -205,14 +205,9 @@ var builtIn = map[string]AgentProfile{
                 "skill": {"description", "allowed-tools",
                           "disable-model-invocation", "user-invocable", "context", "agent", "model"},
             },
-            DefaultValues: map[string]any{
-                "rule.alwaysApply": true,
-                "rule.enabled":     true,
-            },
+            DefaultValues: map[string]any{},
             FieldConstraints: map[string]FieldConstraint{
-                "skill.description":       {MaxLength: 1024},
-                "rule.alwaysApply":        {Behavior: "alwaysApply:false + no paths → rule not loaded"},
-                "rule.alwaysApply_noPaths": {Behavior: "alwaysApply:false + no paths → rule not loaded"},
+                "skill.description": {MaxLength: 1024},
             },
         },
     },
@@ -275,6 +270,9 @@ type CanonicalRule struct {
     // 触发规则的文件 glob 模式，nil = 无条件触发
     Paths       []string `json:"paths,omitempty"`
 }
+// 注意：在新适配策略下（Rule frontmatter 保持不变），Rule 适配不解析 frontmatter，
+// AlwaysApply 和 Paths 字段在 Rule 适配流程中不会被填充或读取。
+// 这些字段保留供后续迭代（如 Hook 适配或其他需要语义解析的场景）使用。
 
 // CanonicalSkill — Skill 组件的语义信息
 type CanonicalSkill struct {
@@ -407,7 +405,7 @@ flowchart LR
 
 | 组件类型 | 转换逻辑 |
 |---------|---------|
-| Rule | 解析 frontmatter：有 `paths` → `AlwaysApply: false, Paths: [paths]`；无 frontmatter → `AlwaysApply: true` |
+| Rule | 不解析/修改 frontmatter，将原始文件内容作为 `CanonicalFile` 原样传递 |
 | Skill | 解析 SKILL.md frontmatter：保留所有字段映射到 CanonicalSkill；`allowed-tools` → `AllowedTools`；`when_to_use` → `WhenToUse` |
 | Hook | 解析 settings.json 中 `hooks` 字段：将嵌套的 `Event → [{matcher, hooks}]` 结构映射为 `CanonicalHookEvent` 列表 |
 
@@ -415,7 +413,7 @@ flowchart LR
 
 | 组件类型 | 转换逻辑 |
 |---------|---------|
-| Rule | `AlwaysApply: true` → 无 frontmatter（或仅保留 paths 为空）；`AlwaysApply: false` + 有 Paths → frontmatter 写入 `paths` |
+| Rule | 不修改 frontmatter，将 `CanonicalFile.Content` 原样输出；仅执行正文路径/变量替换 |
 | Skill | 写入 SKILL.md frontmatter：输出 Claude 支持的字段；`WhenToUse` → `when_to_use`；`DisallowedTools` → `disallowed-tools` |
 | Hook | 将 CanonicalHookEvent 列表序列化为 settings.json 的 `hooks` 字段 |
 
@@ -425,7 +423,7 @@ flowchart LR
 
 | 组件类型 | 转换逻辑 |
 |---------|---------|
-| Rule | 解析 frontmatter：`alwaysApply` → `AlwaysApply`；`paths` → `Paths`；忽略 `updatedAt`、`provider` 等 IDE 自动管理字段 |
+| Rule | 不解析/修改 frontmatter，将原始文件内容作为 `CanonicalFile` 原样传递 |
 | Skill | 解析 SKILL.md frontmatter：同 Claude，但无 `when_to_use`、`disallowed-tools` 字段 |
 | Hook | 解析 settings.json 中 `hooks` 字段：结构兼容 Claude（CodeBuddy 兼容 Claude 规范），直接映射；额外支持 `http` 类型 handler |
 
@@ -433,7 +431,7 @@ flowchart LR
 
 | 组件类型 | 转换逻辑 |
 |---------|---------|
-| Rule | 写入 frontmatter：输出 `alwaysApply`、`enabled: true`、`paths`（如有）；截断 `description` 至 1024 字符；若 `AlwaysApply: false` 且 `Paths` 为空，输出 warning 提醒用户该规则在 CodeBuddy 中不会被加载 |
+| Rule | 不修改 frontmatter，将 `CanonicalFile.Content` 原样输出；仅执行正文路径/变量替换 |
 | Skill | 写入 SKILL.md frontmatter：跳过 `when_to_use`、`disallowed-tools`；截断 `description` 至 1024 字符 |
 | Hook | 序列化为 settings.json 的 `hooks` 字段：保留所有 handler 类型（command、prompt、http、agent）；跳过 CodeBuddy 不支持的事件类型 |
 
@@ -554,8 +552,8 @@ const (
 type SourceAgent string
 
 const (
-    SourceClaude   SourceAgent = "claude"
-    SourceCodebody SourceAgent = "codebuddy"
+    SourceClaude    SourceAgent = "claude"
+    SourceCodeBuddy SourceAgent = "codebuddy"
 )
 
 // Component 对应 .pbrew.json 的数据结构
@@ -731,14 +729,19 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[pbrew list] --> B{source 已配置?}
-    B -- 否 --> C[提示先执行 pbrew config set source]
-    B -- 是 --> D[获取 Source 实例]
-    D --> E{_index.json 存在?}
-    E -- 是 --> F[解析 _index.json]
-    E -- 否 --> G[遍历所有子目录<br/>查找 .pbrew.json]
-    F --> H[输出组件列表]
-    G --> H
+    A[pbrew list] --> B{带 --agent 参数?}
+    B -- 是 --> C[读取 _config.json 安装记录]
+    C --> D[遍历已安装组件]
+    D --> E[对比数据源中最新版本]
+    E --> F[输出已安装组件列表 + 版本状态]
+    B -- 否 --> G{source 已配置?}
+    G -- 否 --> H[提示先执行 pbrew config set source]
+    G -- 是 --> I[获取 Source 实例]
+    I --> J{_index.json 存在?}
+    J -- 是 --> K[解析 _index.json]
+    J -- 否 --> L[遍历所有子目录<br/>查找 .pbrew.json]
+    K --> M[输出可用组件列表]
+    L --> M
 ```
 
 ### 6.5 pbrew publish 流程（P1）
@@ -785,27 +788,19 @@ sequenceDiagram
 
 ### 7.1 adapter — Canonical 中转格式转换引擎
 
-#### 7.1.1 Rule 适配流程（Claude ↔ Canonical ↔ CodeBuddy）
+#### 7.1.1 Rule 适配流程（任意方向）
 
 ```mermaid
 flowchart TD
-    subgraph "Claude → Canonical"
-        A1["读取 .md 文件"] --> A2["解析 Frontmatter"]
-        A2 --> A3{"有 paths 字段?"}
-        A3 -- 是 --> A4["AlwaysApply: false<br/>Paths: [paths]"]
-        A3 -- 否 --> A5["AlwaysApply: true<br/>Paths: nil"]
-        A4 & A5 --> A6["构建 CanonicalRule"]
-    end
-
-    subgraph "Canonical → CodeBuddy"
-        B1["CanonicalRule"] --> B2{"AlwaysApply?"}
-        B2 -- "true" --> B3["写入 alwaysApply: true<br/>enabled: true"]
-        B2 -- "false" --> B4["写入 alwaysApply: false<br/>enabled: true<br/>paths: [...]"]
-        B3 & B4 --> B5["截断 description 至 1024"]
-        B5 --> B6["正文替换 @引用中 .claude/ → .codebuddy/"]
-        B6 --> B7["序列化 Frontmatter + 正文"]
+    subgraph "Rule 转换（任意 Agent 方向）"
+        A1["读取 .md 文件"] --> A2["保留 frontmatter 原样不变"]
+        A2 --> A3["正文替换路径引用<br/>.claude/ ↔ .codebuddy/"]
+        A3 --> A4["正文替换变量名<br/>${CLAUDE_*} ↔ ${CODEBUDDY_*}"]
+        A4 --> A5["输出转换后文件"]
     end
 ```
+
+> **路径/变量替换的执行时机**：Rule 适配中，ToCanonical 阶段将源文件原样存入 `CanonicalFile`（不做任何替换），FromCanonical 阶段根据目标 Agent 执行正文中的路径和变量替换后输出。这样可以确保 `sourceAgent == targetAgent` 时走恒等转换（零替换），方向转换时仅在最终输出阶段做一次替换。
 
 #### 7.1.2 Skill 适配流程（Claude ↔ Canonical ↔ CodeBuddy）
 
@@ -856,6 +851,8 @@ Markdown 文件结构：
 4. 仅序列化修改后的 YAML 节点，拼回原文件
 
 > 注意：使用 `Node` API 而非 `map[string]interface{}` 的原因：后者在 round-trip 时会丢失注释、变更引号风格、改变键顺序，导致文件 diff 噪声。Node API 操作 AST 树，仅修改目标字段，保留其余内容完全不变。
+
+> **Rule 组件不使用 frontmatter 解析**：由于 Rule 适配策略为"保留原始 frontmatter 不变"（见 §7.1.1），Rule 组件转换过程中不调用 frontmatter 解析/修改逻辑。Frontmatter 解析仅用于 Skill 组件适配。
 
 #### 7.1.5 路径与变量替换
 
@@ -954,7 +951,7 @@ func RecordFilePath(profile agent.AgentProfile, scope, projectRoot string) (stri
 
 > **Rule 命名空间约定**：Rule 组件安装到 `<agent-root>/rules/<component-name>/` 子目录下，文件名保持原始名称不变。这样不同组件的同名文件不会冲突（如两个组件都有 `conventions.md` 时，分别在 `rules/A/conventions.md` 和 `rules/B/conventions.md`）。Claude Code 和 CodeBuddy Code 均支持递归扫描 `rules/` 下的子目录。
 >
-> **组件目录扁平化约束**：组件源目录内不允许嵌套子目录（如 `rules/git-conventions/docs/extra.md` 是非法的），所有文件必须平铺在组件根目录下。因此安装后的 Rule 路径格式始终为 `rules/<component-name>/<filename>.md`，卸载时只需删除已记录的文件并清理空目录，无需递归处理子目录。
+> **Rule 组件扁平化约束**：Rule 组件源目录内不允许嵌套子目录（如 `rules/git-conventions/docs/extra.md` 是非法的），所有文件必须平铺在组件根目录下。因此安装后的 Rule 路径格式始终为 `rules/<component-name>/<filename>.md`，卸载时只需删除已记录的文件并清理空目录，无需递归处理子目录。Skill 组件允许包含子目录（如 `scripts/`、`references/`），与各 Agent 的 Skill 目录约定一致；卸载时直接删除整个 Skill 安装子目录。
 
 **安装路径映射表（由 AgentProfile 驱动）：**
 
@@ -989,6 +986,8 @@ type InstallParams struct {
 5. 写入文件
 6. 更新 `_config.json` 安装记录（记录文件清单）
 
+> **原子写入保障**：步骤 5–6 中写入组件文件和 `_config.json` 时，均采用 **write-temp-then-rename** 模式——先将内容写入同目录下的临时文件，再通过 `os.Rename` 原子替换目标文件。此策略确保即使进程中途崩溃，也不会留下半截写入的损坏文件。
+
 **Hook：**
 1. 通过 `registry.FindComponent` 定位组件
 2. 通过 `registry.LoadComponent` 读取源文件的 settings.json
@@ -1008,15 +1007,13 @@ uninstall 和 update 本质是 install 的变体：
 
 ```json
 {
-  "source": {
-    "url": "https://github.com/user/ai-components.git"
-  }
+  "source": "https://github.com/user/ai-components.git"
 }
 ```
 
 ```go
 type Config struct {
-    SourceURL string `json:"sourceUrl"` // 内部扁平存储，JSON 读写使用标准库 encoding/json
+    Source string `json:"source"` // 数据源地址（Git URL 或本地路径）
 }
 
 func Load() (*Config, error)
@@ -1030,7 +1027,7 @@ func (c *Config) Set(key, value string)
 - 当前配置项极少（仅 `source`），JSON 足够简洁
 - 与项目中其他 JSON 文件（`.pbrew.json`、`_config.json`、`_index.json`）格式统一
 
-`Set`/`Get` 支持点分路径（如 `source.url`），映射到 JSON 嵌套字段。
+`Set`/`Get` 直接使用顶层 key（如 `source`），映射到同名 JSON 字段。
 
 ## 8. CLI 命令定义
 
@@ -1057,8 +1054,13 @@ pbrew config list
 ### 8.3 list 命令
 
 ```
-pbrew list
+pbrew list [--agent <agent-id>] [--scope <scope>]
 ```
+
+- `--agent`：可选，指定目标 Agent。传入时列出该 Agent 下已安装的组件及版本状态
+- `--scope`：可选，与 `--agent` 配合使用，默认 `project`。支持 `user` / `project`
+
+不带 `--agent` 时，列出数据源中所有可用组件；带 `--agent` 时，列出已安装组件并对比数据源版本标注更新状态（如 `outdated`）。
 
 输出格式（表格）：
 
@@ -1101,11 +1103,12 @@ pbrew uninstall <name...> --agent <agent> --scope <scope>
 ### 8.7 publish 命令（P1）
 
 ```
-pbrew publish --name <name> --dir <dir>
+pbrew publish --name <name> --dir <dir> [--version <version>]
 ```
 
 - `--name`：必填，组件名称
 - `--dir`：必填，组件源目录路径
+- `--version`：可选，手动指定版本号（语义化版本格式，如 `1.1.0`）。未指定时自动递增 patch
 
 ## 9. 错误处理策略
 
@@ -1177,46 +1180,59 @@ flowchart TD
 adapter 基于 Canonical 中转，每个方向的转换都是纯函数：
 
 ```go
-func TestClaudeToCanonicalRule(t *testing.T) {
+func TestRuleTransformPathReplace(t *testing.T) {
     tests := []struct {
-        name    string
-        input   []adapter.CanonicalFile
-        expect  adapter.CanonicalRule
+        name      string
+        source    string // 源 Agent
+        target    string // 目标 Agent
+        input     []adapter.CanonicalFile
+        expect    []adapter.CanonicalFile
     }{
         {
-            name: "always_rule_no_frontmatter",
+            name:   "claude_to_codebuddy_path_in_body",
+            source: "claude",
+            target: "codebuddy",
             input: []adapter.CanonicalFile{
-                {RelPath: "git-conventions.md", Content: []byte("# Git Rules\n")},
+                {RelPath: "my-rule.md", Content: []byte("# Rules\n\nSee @.claude/rules/other.md\n")},
             },
-            expect: adapter.CanonicalRule{AlwaysApply: true},
+            expect: []adapter.CanonicalFile{
+                {RelPath: "my-rule.md", Content: []byte("# Rules\n\nSee @.codebuddy/rules/other.md\n")},
+            },
         },
         {
-            name: "conditional_rule_with_paths",
+            name:   "claude_to_codebuddy_variable_in_body",
+            source: "claude",
+            target: "codebuddy",
             input: []adapter.CanonicalFile{
-                {RelPath: "api-style.md", Content: []byte("---\npaths: src/api/**/*.ts\n---\n# API Rules")},
+                {RelPath: "my-rule.md", Content: []byte("Run script at ${CLAUDE_SKILL_DIR}/check.sh\n")},
             },
-            expect: adapter.CanonicalRule{AlwaysApply: false, Paths: []string{"src/api/**/*.ts"}},
+            expect: []adapter.CanonicalFile{
+                {RelPath: "my-rule.md", Content: []byte("Run script at ${CODEBUDDY_SKILL_DIR}/check.sh\n")},
+            },
+        },
+        {
+            name:   "same_agent_no_change",
+            source: "claude",
+            target: "claude",
+            input: []adapter.CanonicalFile{
+                {RelPath: "my-rule.md", Content: []byte("@.claude/rules/other.md\n")},
+            },
+            expect: []adapter.CanonicalFile{
+                {RelPath: "my-rule.md", Content: []byte("@.claude/rules/other.md\n")},
+            },
         },
     }
 }
 
-func TestCanonicalToCodebuddyRule(t *testing.T) {
-    tests := []struct {
-        name    string
-        input   adapter.CanonicalRule
-        expect  string // 期望的 frontmatter 片段
-    }{
-        {
-            name:  "always_rule",
-            input: adapter.CanonicalRule{AlwaysApply: true},
-            expect: "alwaysApply: true\nenabled: true",
-        },
-        {
-            name:  "conditional_rule",
-            input: adapter.CanonicalRule{AlwaysApply: false, Paths: []string{"src/api/**/*.ts"}},
-            expect: "alwaysApply: false\nenabled: true\npaths: src/api/**/*.ts",
-        },
-    }
+func TestRuleFrontmatterPreserved(t *testing.T) {
+    // 验证 Rule 转换前后 frontmatter 原样保留
+    input := []byte("---\nalwaysApply: false\npaths: src/api/**/*.ts\n---\n# Rules\n")
+    output := transformRuleContent("claude", "codebuddy", []adapter.CanonicalFile{
+        {RelPath: "rule.md", Content: input},
+    })
+    // frontmatter 部分应完全不变
+    assert.Contains(t, string(output[0].Content), "alwaysApply: false")
+    assert.Contains(t, string(output[0].Content), "paths: src/api/**/*.ts")
 }
 ```
 

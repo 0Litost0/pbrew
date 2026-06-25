@@ -8,7 +8,7 @@
 
 ### 1.2 AI 组件的原子化
 
-每个 AI 组件是**原子化、自闭合**的——即每个组件拥有一个独立的目录，目录内包含组件的所有文件以及一个 `.pbrew.json` 元数据文件。组件目录内**不允许嵌套子目录**（如 `rules/git-conventions/docs/extra.md`），所有文件必须平铺在组件根目录下。这一约束确保安装时文件路径可预测、卸载时可完整清理。
+每个 AI 组件是**原子化、自闭合**的——即每个组件拥有一个独立的目录，目录内包含组件的所有文件以及一个 `.pbrew.json` 元数据文件。Rule 组件目录内**不允许嵌套子目录**（如 `rules/git-conventions/docs/extra.md`），所有文件必须平铺在组件根目录下。这一约束确保安装时文件路径可预测、卸载时可完整清理。Skill 组件允许包含子目录（如 `scripts/`、`references/`），与各 Agent 的 Skill 目录约定一致；卸载时直接删除整个 Skill 安装子目录。
 
 `.pbrew.json` 声明当前组件的基本信息：
 
@@ -52,7 +52,8 @@ MVP 阶段不考虑权限控制（谁能 publish）和强制版本策略，这�
 组件仓库中的所有 Rule / Skill 文件默认遵循 Claude Code 的格式规范。原因：
 
 - Claude Code 格式更早、社区内容更丰富；
-- Claude → CodeBuddy 的转换是机械性替换（文件名、路径前缀、变量名），逻辑清晰、不易出错；
+- Claude → CodeBuddy 的 Rule 转换仅涉及正文中路径前缀和变量名的替换，frontmatter 保持原样不变（两者均宽松解析未知字段），逻辑清晰、不易出错；
+- Skill 转换为字段层面的映射与截断，同样机械性高；
 - 反方向（CodeBuddy → Claude）会丢失 `alwaysApply`、`enabled` 等 Claude 不支持的字段。
 
 ### 4.2 Agent 适配规则作为 pbrew 内置知识
@@ -105,10 +106,17 @@ pbrew config list
 ### 5.2 AI 组件的查询（pbrew list）
 
 ```bash
+# 列出数据源中所有可用组件
 pbrew list
+
+# 列出指定 Agent 下已安装的组件及其版本状态
+pbrew list --agent <agent-id> [--scope <scope>]
 ```
 
-列出已绑定数据源下的所有可用 AI 组件，显示组件名称、类型、版本、简介等信息。
+- `--agent`：可选，指定目标 Agent。传入此参数时，列出该 Agent 在指定 scope 下已安装的组件，并对比数据源版本显示更新状态（如 `outdated`）
+- `--scope`：可选，与 `--agent` 配合使用，默认 `project`。支持 `user` / `project`
+
+不带 `--agent` 时，列出数据源中所有可用组件，显示组件名称、类型、版本、简介等信息。
 
 ### 5.3 AI 组件的安装（pbrew install）
 
@@ -171,21 +179,23 @@ pbrew uninstall <component-name...> --agent <agent-id> --scope <scope>
 ### 5.6 AI 组件的发布（pbrew publish）
 
 ```bash
-pbrew publish --name <component-name> --dir <component-dir>
+pbrew publish --name <component-name> --dir <component-dir> [--version <version>]
 ```
 
 - `--name`：期望发布的组件名称
 - `--dir`：组件所在目录
+- `--version`：可选，手动指定版本号（如 `1.1.0`）。若未指定，则自动生成版本号：
+  - 首次发布：`0.1.0`
+  - 更新发布：`patch +1`（如 `1.0.3` → `1.0.4`）
+- 版本号采用语义化版本（Semantic Versioning）格式，`pbrew update` 对比版本时使用语义化版本比较规则（先比较 major，再 minor，最后 patch），而非字符串字典序
 
 发布流程：
 
 1. 读取组件目录，根据组件类型和内置适配规则，将组件格式转换为仓库默认格式（Claude Code）
-2. 自动生成版本号：
-   - 首次发布：`0.1.0`
-   - 更新发布：`patch +1`（如 `1.0.3` → `1.0.4`）
+2. 确定版本号（优先使用 `--version` 指定值，否则自动递增）
 3. 生成 `.pbrew.json` 元数据文件
 4. 将组件写入已绑定的数据源目录
-5. **如果数据源中已存在同名且同版本号的组件，直接 publish 失败，要求用户手动修改版本号后重试**
+5. **如果数据源中已存在同名且同版本号的组件，直接 publish 失败，要求用户通过 `--version` 指定其他版本号后重试**
 6. 输出后续 git 提交命令供用户手动执行
 
 ## 6. 组件仓库结构
@@ -247,19 +257,15 @@ pbrew 支持用户根据不同场景自定义仓库的目录结构。程序会**
 
 ## 7. 适配规则补充约定
 
-### 7.1 Rule Frontmatter 转换的精细化
+### 7.1 Rule Frontmatter 转换策略
 
-Claude → CodeBuddy 方向转换时，`alwaysApply` 的设置不应一律为 `true`，需根据源文件 frontmatter 判断：
+在不同 Agent 之间转换 Rule 时，**保留原始 frontmatter 内容不变**。原因：
 
-| 源文件（Claude 格式） | 转换后（CodeBuddy 格式） | 说明 |
-|----------------------|-------------------------|------|
-| 无 frontmatter | `alwaysApply: true` | 原规则始终加载 |
-| 有 `paths` 字段 | `alwaysApply: false` | 原规则为条件触发 |
-| 已有 `alwaysApply` | 保持原值 | 无需改动 |
+- Claude Code 仅支持 `paths` 字段，遇到其他 Agent 特有字段（如 `alwaysApply`、`enabled`）时会忽略，不影响规则加载
+- CodeBuddy Code 遇到 Claude 特有字段时同样忽略（两者均采用宽松解析策略）
+- 保持 frontmatter 原样可避免 round-trip 时的 diff 噪声和语义偏差
 
-同时始终补充 `enabled: true`。
-
-> **⚠️ 语义差异提醒**：当转换结果为 `alwaysApply: false` 且无 `paths` 时，该规则在 CodeBuddy Code 中**不会被加载**（而 Claude Code 仍可触发）。pbrew 在安装此类规则到 CodeBuddy 时应输出 warning 提醒用户。
+因此，Rule 适配仅需执行正文层面的路径和变量替换（见 §7.2），**不增删或修改任何 frontmatter 字段**。
 
 ### 7.2 Rule 内容中 `@` 引用路径的替换
 
@@ -315,7 +321,7 @@ MVP 支持以下组件类型：
 |------|---------|---------|
 | 权限控制 | 无，任何用户均可 publish | 团队/组织场景下增加权限管理 |
 | `hash` 对比更新 | 仅对比 `version` | 增加 `hash` 对比，检测本地手动修改 |
-| 并发安装安全 | 无文件锁保护 | 增加文件锁，防止并发安装导致安装记录损坏 |
+| 并发安装安全 | 无文件锁保护（写入采用原子 rename），并发安装可能导致安装记录相互覆盖 | 增加文件锁，防止并发安装导致安装记录损坏 |
 | CodeBuddy → Claude 反向适配 | 不支持 | 在 `.pbrew.json` 中通过 `sourceAgent` 支持 |
 | Hook 组件 | 类型定义未明确 | 补充 Hook 格式差异对比与适配规则 |
 | 安装冲突策略 | 覆盖前提示确认 | 增加跳过、备份后覆盖等策略 |
