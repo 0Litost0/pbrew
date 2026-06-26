@@ -1,0 +1,1 @@
+---\ndescription: Generate commit messages\nallowed-tools: [Bash, Read]\n---\n# Commit Skill\n\nGenerate a commit message based on the diff.

@@ -1,0 +1,1 @@
+{"version":1,"components":[{"name":"git-conventions","type":"rule","version":"1.0.0","description":"Git commit and branch conventions","path":"rules/git-conventions"},{"name":"commit","type":"skill","version":"0.2.0","description":"Generate conventional commit messages","path":"skills/commit"}]}
