@@ -1,0 +1,37 @@
+# pbrew install — 安装 Rule 组件
+
+# 准备数据源
+mkdir $HOME/repo/rules/git-conventions
+cp $FIXTURES/repo/_index.json $HOME/repo/_index.json
+cp $FIXTURES/repo/rules/git-conventions/.pbrew.json $HOME/repo/rules/git-conventions/.pbrew.json
+cp $FIXTURES/repo/rules/git-conventions/git-conventions.md $HOME/repo/rules/git-conventions/git-conventions.md
+
+exec pbrew config set source $HOME/repo
+
+# 安装 Rule 到 claude (user scope)
+exec pbrew install git-conventions --agent claude --scope user --force
+stdout 'installed git-conventions'
+
+# 验证安装文件存在
+exists $HOME/.claude/rules/git-conventions/git-conventions.md
+
+# 验证安装记录存在
+exists $HOME/.claude/.pbrew/_config.json
+
+# 验证安装记录包含组件信息
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout 'git-conventions'
+stdout '"rule"'
+
+# 安装到 codebuddy (user scope) — 验证跨 Agent 安装
+exec pbrew install git-conventions --agent codebuddy --scope user --force
+stdout 'installed git-conventions'
+
+# 验证 codebuddy 目录下有安装文件
+exists $HOME/.codebuddy/rules/git-conventions/git-conventions.md
+
+# 缺少 --agent 应报错
+! exec pbrew install git-conventions
+
+# 安装不存在的组件应报错
+! exec pbrew install nonexistent --agent claude --scope user --force

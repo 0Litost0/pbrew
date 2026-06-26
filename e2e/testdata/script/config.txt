@@ -1,0 +1,22 @@
+# pbrew config set/get/list
+
+# 准备本地数据源目录（供 set source 使用）
+mkdir $HOME/repo
+
+# set source
+exec pbrew config set source $HOME/repo
+stdout 'Set source = '
+
+# get source
+exec pbrew config get source
+stdout $HOME/repo
+
+# list 显示已设置的配置
+exec pbrew config list
+stdout 'source='
+
+# get 未设置的 key 应报错
+! exec pbrew config get nonexistent
+
+# set 不支持的 key 应报错
+! exec pbrew config set unknown value

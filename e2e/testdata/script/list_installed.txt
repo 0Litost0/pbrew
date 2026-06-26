@@ -1,0 +1,24 @@
+# pbrew list --agent — 列出已安装组件及版本状态
+
+# 准备数据源
+mkdir $HOME/repo/rules/git-conventions
+mkdir $HOME/repo/skills/commit
+cp $FIXTURES/repo/_index.json $HOME/repo/_index.json
+cp $FIXTURES/repo/rules/git-conventions/.pbrew.json $HOME/repo/rules/git-conventions/.pbrew.json
+cp $FIXTURES/repo/rules/git-conventions/git-conventions.md $HOME/repo/rules/git-conventions/git-conventions.md
+cp $FIXTURES/repo/skills/commit/.pbrew.json $HOME/repo/skills/commit/.pbrew.json
+cp $FIXTURES/repo/skills/commit/SKILL.md $HOME/repo/skills/commit/SKILL.md
+
+exec pbrew config set source $HOME/repo
+
+# 先安装两个组件到 claude (user scope)
+exec pbrew install git-conventions --agent claude --scope user --force
+exec pbrew install commit --agent claude --scope user --force
+
+# 列出 claude 下已安装组件
+exec pbrew list --agent claude --scope user
+stdout 'git-conventions'
+stdout 'commit'
+
+# 不合法的 agent 应报错
+! exec pbrew list --agent nonexistent

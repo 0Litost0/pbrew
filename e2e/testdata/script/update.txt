@@ -1,0 +1,37 @@
+# pbrew update — 更新已安装组件
+
+# 准备数据源（初始版本）
+mkdir $HOME/repo/rules/git-conventions
+cp $FIXTURES/repo/_index.json $HOME/repo/_index.json
+cp $FIXTURES/repo/rules/git-conventions/.pbrew.json $HOME/repo/rules/git-conventions/.pbrew.json
+cp $FIXTURES/repo/rules/git-conventions/git-conventions.md $HOME/repo/rules/git-conventions/git-conventions.md
+
+exec pbrew config set source $HOME/repo
+
+# 安装初始版本
+exec pbrew install git-conventions --agent claude --scope user --force
+stdout 'installed git-conventions'
+
+# 验证安装版本
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout '1.0.0'
+
+# 升级数据源中的版本号（模拟新版本发布）
+# 用 writefile 自定义命令写入新版本元数据
+writefile $HOME/repo/rules/git-conventions/.pbrew.json '{"name":"git-conventions","version":"2.0.0","type":"rule","description":"Git commit and branch conventions","hash":"abc123"}'
+writefile $HOME/repo/_index.json '{"version":1,"components":[{"name":"git-conventions","type":"rule","version":"2.0.0","description":"Git commit and branch conventions","path":"rules/git-conventions"}]}'
+
+# 更新组件
+exec pbrew update --all --agent claude --scope user
+stdout 'updating 1.0.0'
+
+# 验证版本已更新
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout '2.0.0'
+
+# 再次更新，已是最新版本
+exec pbrew update --all --agent claude --scope user
+stdout 'up-to-date'
+
+# 缺少 --agent 应报错
+! exec pbrew update --all
