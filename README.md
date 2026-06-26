@@ -29,12 +29,15 @@
 
 ### 安装
 
-从源码构建（见下方[本地构建](#本地构建)），或直接下载预编译二进制：
+确保 `$GOPATH/bin`（默认 `~/go/bin`）已在 `$PATH` 中，然后：
 
 ```bash
-# 构建完成后
-cp pbrew /usr/local/bin/
+go install github.com/user/pbrew@latest
 ```
+
+即可直接使用 `pbrew` 命令。
+
+> 也可从源码构建，详见下方[本地构建](#本地构建)。
 
 ### 配置数据源
 
@@ -101,13 +104,16 @@ pbrew uninstall git-conventions --agent claude --scope user
 
 > pbrew 编译为静态二进制，运行时不需要 Go 环境。
 
-### 构建
+### 安装与构建
 
 ```bash
 git clone git@github.com:0Litost0/pbrew.git
 cd pbrew
 
-# 开发构建
+# 编译并安装到 $GOPATH/bin（推荐，无需手动 cp）
+go install .
+
+# 或者仅在当前目录生成二进制（不安装）
 go build -o pbrew .
 
 # 跨平台发布构建
@@ -115,6 +121,8 @@ GOOS=linux   GOARCH=amd64 go build -o dist/pbrew-linux-amd64 .
 GOOS=darwin  GOARCH=arm64 go build -o dist/pbrew-darwin-arm64 .
 GOOS=windows GOARCH=amd64 go build -o dist/pbrew-windows-amd64.exe .
 ```
+
+> **提示**：`go install .` 会编译并将二进制放入 `$GOPATH/bin`（默认 `~/go/bin`），确保该目录在 `$PATH` 中即可直接使用 `pbrew`。
 
 ### 运行测试
 
