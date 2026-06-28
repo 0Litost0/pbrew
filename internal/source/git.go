@@ -77,7 +77,7 @@ func (s *GitSource) Close() error {
 		return nil
 	}
 	if s.keep {
-		s.tempDir = ""
+		// Preserve tempDir so Root() still returns the path after Close.
 		return nil
 	}
 	err := os.RemoveAll(s.tempDir)
