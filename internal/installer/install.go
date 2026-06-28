@@ -8,6 +8,7 @@ import (
 
 	"github.com/user/pbrew/internal/adapter"
 	"github.com/user/pbrew/internal/agent"
+	"github.com/user/pbrew/internal/logger"
 	"github.com/user/pbrew/internal/model"
 	"github.com/user/pbrew/internal/platform"
 	"github.com/user/pbrew/internal/registry"
@@ -119,11 +120,13 @@ func writeFiles(targetDir string, files []adapter.CanonicalFile, force bool) ([]
 
 		// Check if file already exists
 		if _, err := os.Stat(fullPath); err == nil && !force {
+			logger.L.Warn().Str("path", fullPath).Msg("file already exists, prompting user")
 			fmt.Printf("File already exists: %s\n", fullPath)
 			fmt.Print("Overwrite? (y/N): ")
 			var answer string
 			fmt.Scanln(&answer)
 			if answer != "y" && answer != "Y" {
+				logger.L.Info().Str("file", f.RelPath).Msg("skipping existing file")
 				fmt.Printf("Skipping %s\n", f.RelPath)
 				continue
 			}
@@ -138,6 +141,8 @@ func writeFiles(targetDir string, files []adapter.CanonicalFile, force bool) ([]
 		if err := atomicWriteFile(fullPath, f.Content, 0644); err != nil {
 			return nil, fmt.Errorf("write %s: %w", f.RelPath, err)
 		}
+
+		logger.L.Debug().Str("path", f.RelPath).Msg("wrote file")
 
 		// Record relative path from Agent root
 		relFromAgentRoot := filepath.Join(

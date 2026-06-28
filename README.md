@@ -16,11 +16,11 @@
 - **数据驱动路径**：所有安装路径由 `AgentProfile` 声明式驱动，零 if/else 分支逻辑
 - **原子写入**：全局采用 write-temp-then-rename 策略，崩溃安全
 
-### MVP 范围
+### 功能范围
 
 | 项目 | 支持 |
 |------|------|
-| 命令 | `config`、`list`、`install`、`update`、`uninstall` |
+| 命令 | `config`、`list`、`install`、`update`、`uninstall`、`publish` |
 | 数据源 | Git 仓库（浅克隆）、本地目录 |
 | Agent | Claude Code、CodeBuddy Code |
 | 组件类型 | Rule、Skill |
@@ -93,6 +93,32 @@ pbrew update --all --agent claude --scope user
 pbrew uninstall git-conventions --agent claude --scope user
 ```
 
+### 发布组件
+
+将本地组件目录发布到已配置的数据源，自动转换为仓库默认格式（Claude Code）并生成 `.pbrew.json` 元数据：
+
+```bash
+# 首次发布（版本号默认 0.1.0）
+pbrew publish --name my-rule --dir ./my-rule
+
+# 再次发布（版本号自动 patch +1，如 0.1.0 → 0.1.1）
+pbrew publish --name my-rule --dir ./my-rule
+
+# 指定版本号
+pbrew publish --name my-rule --dir ./my-rule --version 2.0.0
+```
+
+发布成功后会输出 git 提交命令，供手动执行：
+
+```
+published my-rule 0.1.0
+
+To commit and push:
+  cd /path/to/repo && git add -A && git commit -m 'publish my-rule@0.1.0' && git push
+```
+
+> **同名同版本冲突**：若数据源中已存在同名且同版本号的组件，发布会被拒绝，需通过 `--version` 指定不同的版本号。
+
 ## 本地构建
 
 ### 环境依赖
@@ -137,15 +163,30 @@ go test ./e2e/ -v -timeout 120s
 go test ./...
 ```
 
+### 结构化日志
+
+pbrew 使用 [zerolog](https://github.com/rs/zerolog) 结构化日志，默认写到 stderr，**不干扰 stdout 的用户输出**：
+
+```bash
+# 默认：Warn 级别 + JSON 格式（静默，适用于 AI 解析）
+pbrew update --all --agent claude
+# stderr: {"level":"warn","component":"ghost","time":"...","message":"component not found"}
+
+# 开启 verbose：Debug 级别 + 彩色 ConsoleWriter
+pbrew -v update --all --agent claude
+# stderr: 14:39:54 WRN component not found in source, skipping component=ghost
+```
+
 ### Go 依赖
 
-项目遵循最小化依赖原则，直接依赖仅 5 个：
+项目遵循最小化依赖原则，直接依赖仅 6 个：
 
 | 依赖 | 用途 |
 |------|------|
 | `github.com/spf13/cobra` | CLI 框架 |
 | `gopkg.in/yaml.v3` | YAML frontmatter 解析 |
 | `github.com/Masterminds/semver/v3` | 语义化版本比较 |
+| `github.com/rs/zerolog` | 结构化日志 |
 | `github.com/rogpeppe/go-internal` | E2E 测试（testscript） |
 | `github.com/stretchr/testify` | 测试断言 |
 
@@ -162,6 +203,7 @@ pbrew/
 │   ├── install.go                # pbrew install
 │   ├── update.go                 # pbrew update
 │   ├── uninstall.go              # pbrew uninstall
+│   ├── publish.go                # pbrew publish
 │   └── helpers.go                # 命令层共享工具函数
 ├── internal/                     # 核心业务逻辑（不可被外部导入）
 │   ├── model/                    # 纯数据结构：Component、InstallRecord、Config、AgentProfile
@@ -171,6 +213,8 @@ pbrew/
 │   ├── registry/                 # 组件发现：遍历目录 + _index.json 索引加速
 │   ├── adapter/                  # 适配引擎：Canonical 中转格式 + 双向 Adapter + 路径替换
 │   ├── installer/                # 编排层：Install / Uninstall / Update 全流程 + 原子写入
+│   ├── publisher/                # 发布编排：格式转换 + 版本号解析 + 元数据生成 + 索引更新
+│   ├── logger/                   # 结构化日志：zerolog 双模式（JSON/ConsoleWriter），--verbose 控制
 │   └── platform/                 # 平台工具：项目根目录查找、Agent 目标路径计算
 ├── testdata/                     # 共享测试数据
 │   └── fixtures/

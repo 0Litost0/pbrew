@@ -1,0 +1,72 @@
+# pbrew publish — 发布组件到数据源
+
+# 准备：创建一个空的数据源目录
+mkdir $HOME/repo
+
+exec pbrew config set source $HOME/repo
+
+# ── 发布 Rule 组件 ──
+mkdir $HOME/my-rule
+writefile $HOME/my-rule/my-rule.md ---\npaths: src/**/*.ts\n---\n\n# My Rule\n\nFollow these conventions.\nSee @.claude/rules/api.md for API rules.\n
+
+exec pbrew publish --name my-rule --dir $HOME/my-rule
+stdout 'published my-rule 0.1.0'
+
+# 验证数据源中生成了规则文件
+exists $HOME/repo/rules/my-rule/my-rule.md
+exists $HOME/repo/rules/my-rule/.pbrew.json
+
+# 验证 .pbrew.json 内容
+exec cat $HOME/repo/rules/my-rule/.pbrew.json
+stdout 'my-rule'
+stdout '0.1.0'
+stdout '"rule"'
+
+# 验证 _index.json 已更新
+exists $HOME/repo/_index.json
+exec cat $HOME/repo/_index.json
+stdout 'my-rule'
+stdout '0.1.0'
+
+# ── 再次发布同一组件，版本应自动递增 ──
+exec pbrew publish --name my-rule --dir $HOME/my-rule
+stdout 'published my-rule 0.1.1'
+
+exec cat $HOME/repo/rules/my-rule/.pbrew.json
+stdout '0.1.1'
+
+# ── 使用显式版本号发布 ──
+exec pbrew publish --name my-rule --dir $HOME/my-rule --version 2.0.0
+stdout 'published my-rule 2.0.0'
+
+exec cat $HOME/repo/rules/my-rule/.pbrew.json
+stdout '2.0.0'
+
+# ── 同名同版本发布应失败 ──
+! exec pbrew publish --name my-rule --dir $HOME/my-rule --version 2.0.0
+
+# ── 发布 Skill 组件 ──
+mkdir $HOME/my-skill
+writefile $HOME/my-skill/SKILL.md ---\ndescription: My skill for testing\nallowed-tools: [Bash, Read]\n---\n\n# My Skill\n\nRun ${CLAUDE_SKILL_DIR}/scripts/run.sh in ${CLAUDE_PROJECT_DIR}.\n
+
+exec pbrew publish --name my-skill --dir $HOME/my-skill
+stdout 'published my-skill 0.1.0'
+
+# 验证 Skill 安装路径
+exists $HOME/repo/skills/my-skill/SKILL.md
+exists $HOME/repo/skills/my-skill/.pbrew.json
+
+exec cat $HOME/repo/skills/my-skill/.pbrew.json
+stdout 'my-skill'
+stdout '0.1.0'
+stdout '"skill"'
+
+# ── 缺少 --name 应报错 ──
+! exec pbrew publish --dir $HOME/my-rule
+
+# ── 缺少 --dir 应报错 ──
+! exec pbrew publish --name my-rule
+
+# ── source 未配置应报错 ──
+exec pbrew config set source ''
+! exec pbrew publish --name my-rule --dir $HOME/my-rule

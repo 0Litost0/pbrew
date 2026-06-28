@@ -68,7 +68,7 @@ func (s *LocalSource) WriteDir(relPath string, files map[string][]byte) error {
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			return fmt.Errorf("create directory: %w", err)
 		}
-		if err := os.WriteFile(fullPath, content, 0644); err != nil {
+		if err := atomicWriteFile(fullPath, content, 0644); err != nil {
 			return fmt.Errorf("write %s: %w", fullPath, err)
 		}
 	}
@@ -76,3 +76,32 @@ func (s *LocalSource) WriteDir(relPath string, files map[string][]byte) error {
 }
 
 func (s *LocalSource) Close() error { return nil } // no-op
+
+// atomicWriteFile writes data to path atomically using write-temp-then-rename.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".pbrew-tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	return nil
+}

@@ -4,17 +4,27 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
+	"github.com/user/pbrew/internal/logger"
 )
 
 var verbose bool
 
 var rootCmd = &cobra.Command{
-	Use:   "pbrew",
-	Short: "pbrew — AI component manager for agents",
-	Long:  "pbrew manages AI components (rules, skills, hooks) across different AI agents like Claude Code and CodeBuddy Code.",
+	Use:          "pbrew",
+	Short:        "pbrew — AI component manager for agents",
+	Long:         "pbrew manages AI components (rules, skills, hooks) across different AI agents like Claude Code and CodeBuddy Code.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		logger.Init(verbose)
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
+		if verbose {
+			zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		}
+		return nil
+	},
 }
 
 func init() {
@@ -28,9 +38,4 @@ func Execute() error {
 		return err
 	}
 	return nil
-}
-
-// Verbose returns whether verbose mode is enabled.
-func Verbose() bool {
-	return verbose
 }

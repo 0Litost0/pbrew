@@ -3,13 +3,13 @@ package installer
 import (
 	"fmt"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/user/pbrew/internal/agent"
+	"github.com/user/pbrew/internal/logger"
 	"github.com/user/pbrew/internal/model"
 	"github.com/user/pbrew/internal/platform"
 	"github.com/user/pbrew/internal/registry"
 	"github.com/user/pbrew/internal/source"
-
-	"github.com/Masterminds/semver/v3"
 )
 
 // UpdateParams holds parameters for updating components.
@@ -81,13 +81,13 @@ func Update(params UpdateParams) error {
 	for _, r := range targets {
 		entry, err := registry.FindComponent(params.Source, r.Name)
 		if err != nil {
-			fmt.Printf("Warning: component %s not found in source, skipping\n", r.Name)
+			logger.L.Warn().Str("component", r.Name).Msg("component not found in source, skipping")
 			continue
 		}
 
 		cmp, err := semverCompare(r.Version, entry.Version)
 		if err != nil {
-			fmt.Printf("Warning: version comparison failed for %s: %v\n", r.Name, err)
+			logger.L.Warn().Str("component", r.Name).Err(err).Msg("version comparison failed")
 			continue
 		}
 
@@ -105,7 +105,7 @@ func Update(params UpdateParams) error {
 			Source:        params.Source,
 			Force:         true,
 		}); err != nil {
-			fmt.Printf("Error updating %s: %v\n", r.Name, err)
+			logger.L.Error().Str("component", r.Name).Err(err).Msg("update failed")
 			continue
 		}
 		anyUpdated = true
