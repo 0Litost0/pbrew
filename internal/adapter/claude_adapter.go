@@ -55,7 +55,9 @@ func skillToClaude(canonical *CanonicalComponent) ([]CanonicalFile, error) {
 	result := make([]CanonicalFile, 0, len(canonical.Files))
 	for _, f := range canonical.Files {
 		if f.RelPath == "SKILL.md" {
-			newContent, err := writeSkillFrontmatter(f.Content, canonical.Skill, "claude")
+			// Apply path/variable replacements to SKILL.md body
+			replacedBody := ReplaceContent(f.Content, canonical.Meta.SourceAgent, "claude")
+			newContent, err := writeSkillFrontmatter(replacedBody, canonical.Skill, "claude")
 			if err != nil {
 				return nil, err
 			}

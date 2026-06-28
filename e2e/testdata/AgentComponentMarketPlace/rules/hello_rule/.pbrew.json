@@ -1,0 +1,7 @@
+{
+  "name": "hello_rule",
+  "version": "1.0.0",
+  "type": "rule",
+  "description": "Hello rule for E2E testing",
+  "hash": "rule123"
+}

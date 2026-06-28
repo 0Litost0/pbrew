@@ -1,6 +1,5 @@
 # pbrew config set/get/list
 
-# 准备本地数据源目录（供 set source 使用）
 mkdir $HOME/repo
 
 # set source

@@ -1,0 +1,55 @@
+# pbrew install — 安装 Rule 组件（覆盖 claude / codebuddy 双 Agent，验证适配）
+
+exec pbrew config set source $MARKETPLACE
+
+# ── 安装到 claude (user scope) ──
+exec pbrew install hello_rule --agent claude --scope user --force
+stdout 'installed hello_rule'
+
+# 验证文件存在
+exists $HOME/.claude/rules/hello_rule/hello_rule.md
+
+# claude 安装内容：源格式即 claude，路径和变量应保持原样
+exec cat $HOME/.claude/rules/hello_rule/hello_rule.md
+stdout '@.claude/rules/api-style.md'
+stdout 'CLAUDE_SKILL_DIR'
+stdout 'CLAUDE_PROJECT_DIR'
+
+# frontmatter 原样保留（Rule 不修改 frontmatter）
+exec grep 'paths: src' $HOME/.claude/rules/hello_rule/hello_rule.md
+
+# 验证安装记录
+exists $HOME/.claude/.pbrew/_config.json
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout 'hello_rule'
+stdout '"rule"'
+
+# ── 安装到 codebuddy (user scope) ──
+exec pbrew install hello_rule --agent codebuddy --scope user --force
+stdout 'installed hello_rule'
+
+# 验证文件存在
+exists $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+
+# codebuddy 安装内容：路径和变量应被替换
+exec cat $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+# 路径替换：.claude/ → .codebuddy/
+stdout '@.codebuddy/rules/api-style.md'
+! stdout '@.claude/rules/api-style.md'
+# 变量替换：${CLAUDE_*} → ${CODEBUDDY_*}
+stdout 'CODEBUDDY_SKILL_DIR'
+stdout 'CODEBUDDY_PROJECT_DIR'
+! stdout 'CLAUDE_SKILL_DIR'
+! stdout 'CLAUDE_PROJECT_DIR'
+# frontmatter 原样保留（Rule 不修改 frontmatter）
+exec grep 'paths: src' $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+
+# 验证安装记录
+exists $HOME/.codebuddy/.pbrew/_config.json
+exec cat $HOME/.codebuddy/.pbrew/_config.json
+stdout 'hello_rule'
+stdout '"rule"'
+
+# ── 错误路径 ──
+! exec pbrew install hello_rule
+! exec pbrew install nonexistent --agent claude --scope user --force

@@ -1,0 +1,55 @@
+# pbrew uninstall — 卸载组件（覆盖 claude / codebuddy 双 Agent）
+
+exec pbrew config set source $MARKETPLACE
+
+# 安装到双 Agent
+exec pbrew install hello_rule --agent claude --scope user --force
+exec pbrew install hello_rule --agent codebuddy --scope user --force
+exec pbrew install hello_skill --agent claude --scope user --force
+exec pbrew install hello_skill --agent codebuddy --scope user --force
+
+# 确认四个安装文件都存在
+exists $HOME/.claude/rules/hello_rule/hello_rule.md
+exists $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+exists $HOME/.claude/skills/hello_skill/SKILL.md
+exists $HOME/.codebuddy/skills/hello_skill/SKILL.md
+
+# ── 卸载 claude 的 Rule ──
+exec pbrew uninstall hello_rule --agent claude --scope user
+stdout 'uninstalled hello_rule'
+! exists $HOME/.claude/rules/hello_rule/hello_rule.md
+
+# claude 安装记录中不再包含该组件
+exec cat $HOME/.claude/.pbrew/_config.json
+! stdout 'hello_rule'
+
+# codebuddy 侧不受影响
+exists $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+
+# ── 卸载 codebuddy 的 Rule ──
+exec pbrew uninstall hello_rule --agent codebuddy --scope user
+stdout 'uninstalled hello_rule'
+! exists $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+
+# ── 卸载 claude 的 Skill ──
+exec pbrew uninstall hello_skill --agent claude --scope user
+stdout 'uninstalled hello_skill'
+! exists $HOME/.claude/skills/hello_skill/SKILL.md
+
+# codebuddy 侧 Skill 不受影响
+exists $HOME/.codebuddy/skills/hello_skill/SKILL.md
+
+# ── 卸载 codebuddy 的 Skill ──
+exec pbrew uninstall hello_skill --agent codebuddy --scope user
+stdout 'uninstalled hello_skill'
+! exists $HOME/.codebuddy/skills/hello_skill/SKILL.md
+
+# ── 错误路径 ──
+# 重复卸载已不存在的组件应报错
+! exec pbrew uninstall hello_rule --agent claude --scope user
+
+# 缺少 --scope 应报错
+! exec pbrew uninstall hello_skill --agent claude
+
+# 缺少 --agent 应报错
+! exec pbrew uninstall hello_skill --scope user

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "name": "hello_rule",
+      "type": "rule",
+      "version": "1.0.0",
+      "description": "Hello rule for E2E testing",
+      "path": "rules/hello_rule"
+    },
+    {
+      "name": "hello_skill",
+      "type": "skill",
+      "version": "0.1.0",
+      "description": "Hello skill for E2E testing",
+      "path": "skills/hello_skill"
+    }
+  ]
+}

@@ -145,7 +145,9 @@ func skillToCodeBuddy(canonical *CanonicalComponent) ([]CanonicalFile, error) {
 				SetStringField(root, "model", skill.Model)
 			}
 
-			newContent, err := SerializeFrontmatter(root, f.Content)
+			// Apply path/variable replacements to SKILL.md body
+			replacedBody := ReplaceContent(f.Content, canonical.Meta.SourceAgent, "codebuddy")
+			newContent, err := SerializeFrontmatter(root, replacedBody)
 			if err != nil {
 				return nil, err
 			}

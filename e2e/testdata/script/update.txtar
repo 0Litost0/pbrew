@@ -1,0 +1,51 @@
+# pbrew update — 更新已安装组件（覆盖 claude / codebuddy 双 Agent）
+
+# 复制 marketplace 到可修改的本地副本（update 需要改版本号）
+mkdir $HOME/repo/rules/hello_rule
+mkdir $HOME/repo/skills/hello_skill
+cp $MARKETPLACE/_index.json $HOME/repo/_index.json
+cp $MARKETPLACE/rules/hello_rule/.pbrew.json $HOME/repo/rules/hello_rule/.pbrew.json
+cp $MARKETPLACE/rules/hello_rule/hello_rule.md $HOME/repo/rules/hello_rule/hello_rule.md
+cp $MARKETPLACE/skills/hello_skill/.pbrew.json $HOME/repo/skills/hello_skill/.pbrew.json
+cp $MARKETPLACE/skills/hello_skill/SKILL.md $HOME/repo/skills/hello_skill/SKILL.md
+
+exec pbrew config set source $HOME/repo
+
+# 安装到双 Agent
+exec pbrew install hello_rule --agent claude --scope user --force
+exec pbrew install hello_rule --agent codebuddy --scope user --force
+
+# 验证双 Agent 版本均为 1.0.0
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout '1.0.0'
+exec cat $HOME/.codebuddy/.pbrew/_config.json
+stdout '1.0.0'
+
+# 升级数据源中的版本号（模拟新版本发布）
+writefile $HOME/repo/rules/hello_rule/.pbrew.json {"name":"hello_rule","version":"2.0.0","type":"rule","description":"Hello rule for E2E testing","hash":"rule789"}
+writefile $HOME/repo/_index.json {"version":1,"components":[{"name":"hello_rule","type":"rule","version":"2.0.0","description":"Hello rule for E2E testing","path":"rules/hello_rule"},{"name":"hello_skill","type":"skill","version":"0.1.0","description":"Hello skill for E2E testing","path":"skills/hello_skill"}]}
+
+# 更新 claude 的组件
+exec pbrew update --all --agent claude --scope user
+stdout 'updating 1.0.0'
+
+exec cat $HOME/.claude/.pbrew/_config.json
+stdout '2.0.0'
+
+# 再更新 claude，已是最新
+exec pbrew update --all --agent claude --scope user
+stdout 'up-to-date'
+
+# 更新 codebuddy 的组件
+exec pbrew update --all --agent codebuddy --scope user
+stdout 'updating 1.0.0'
+
+exec cat $HOME/.codebuddy/.pbrew/_config.json
+stdout '2.0.0'
+
+# 再更新 codebuddy，已是最新
+exec pbrew update --all --agent codebuddy --scope user
+stdout 'up-to-date'
+
+# 缺少 --agent 应报错
+! exec pbrew update --all

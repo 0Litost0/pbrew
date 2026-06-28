@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
@@ -46,7 +47,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
-	fixturesDir, err := filepath.Abs(filepath.Join("..", "testdata", "fixtures"))
+	marketplaceDir, err := filepath.Abs(filepath.Join("testdata", "AgentComponentMarketPlace"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestScripts(t *testing.T) {
 		Dir: filepath.Join("testdata", "script"),
 		Setup: func(env *testscript.Env) error {
 			env.Vars = append(env.Vars,
-				"FIXTURES="+fixturesDir,
+				"MARKETPLACE="+marketplaceDir,
 				"HOME="+filepath.Join(env.WorkDir, "home"),
 			)
 			return nil
@@ -81,17 +82,18 @@ func gitinitCmd(ts *testscript.TestScript, neg bool, args []string) {
 	ts.Check(os.Chdir(dir))
 }
 
-// writefile 将内容写入指定文件。用法：writefile <path> <content>
-// 自动创建中间目录。适合在测试脚本中动态生成/覆盖文件。
+// writefile 将内容写入指定文件。用法：writefile <path> <content...>
+// 所有空格后的参数合并为一个字符串，适合写入单行 JSON 等内容。
+// 如需写入多行内容，请使用 testscript 的 txtar 文件语法创建文件后 cp。
 func writefileCmd(ts *testscript.TestScript, neg bool, args []string) {
 	if neg {
 		ts.Fatalf("writefile does not support negation")
 	}
-	if len(args) != 2 {
-		ts.Fatalf("usage: writefile <path> <content>")
+	if len(args) < 2 {
+		ts.Fatalf("usage: writefile <path> <content...>")
 	}
 	path := args[0]
-	content := args[1]
+	content := strings.Join(args[1:], " ")
 	ts.Check(os.MkdirAll(filepath.Dir(path), 0755))
 	ts.Check(os.WriteFile(path, []byte(content), 0644))
 }

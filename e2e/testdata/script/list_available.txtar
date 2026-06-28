@@ -1,0 +1,14 @@
+# pbrew list — 列出数据源中的可用组件
+
+exec pbrew config set source $MARKETPLACE
+
+# 列出可用组件
+exec pbrew list
+stdout 'hello_rule'
+stdout 'hello_skill'
+stdout 'rule'
+stdout 'skill'
+
+# source 未配置时应报错
+exec pbrew config set source ''
+! exec pbrew list

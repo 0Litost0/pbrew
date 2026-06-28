@@ -1,0 +1,7 @@
+{
+  "name": "hello_skill",
+  "version": "0.1.0",
+  "type": "skill",
+  "description": "Hello skill for E2E testing",
+  "hash": "skill456"
+}
