@@ -112,9 +112,9 @@ func TestLoadComponent(t *testing.T) {
 	if comp.Name != "git-conventions" {
 		t.Errorf("Name: got %q, want %q", comp.Name, "git-conventions")
 	}
-	// .pbrew.json should be excluded from files
-	if _, ok := files[".pbrew.json"]; ok {
-		t.Error(".pbrew.json should not be in returned files")
+	// .pbrew.json should be included in files (reserialized metadata)
+	if _, ok := files[".pbrew.json"]; !ok {
+		t.Error(".pbrew.json should be in returned files")
 	}
 	// git-conventions.md should be present
 	if _, ok := files["git-conventions.md"]; !ok {

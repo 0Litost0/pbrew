@@ -61,8 +61,14 @@ func LoadComponent(src source.Source, entry ComponentEntry) (*model.Component, m
 		}
 	}
 
-	// Remove .pbrew.json from the file map (it's not installed)
-	delete(files, metaFile)
+	// Re-serialize .pbrew.json back into the file map so it gets installed.
+	// This preserves the component's self-contained metadata at the install target,
+	// enabling hash verification and consistent update checks.
+	metaReserialized, err := json.MarshalIndent(comp, "", "  ")
+	if err != nil {
+		return nil, nil, fmt.Errorf("reserialize %s: %w", metaFile, err)
+	}
+	files[metaFile] = metaReserialized
 
 	return &comp, files, nil
 }

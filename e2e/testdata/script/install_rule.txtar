@@ -8,6 +8,7 @@ stdout 'installed hello_rule'
 
 # 验证文件存在
 exists $HOME/.claude/rules/hello_rule/hello_rule.md
+exists $HOME/.claude/rules/hello_rule/.pbrew.json
 
 # claude 安装内容：源格式即 claude，路径和变量应保持原样
 exec cat $HOME/.claude/rules/hello_rule/hello_rule.md
@@ -30,6 +31,7 @@ stdout 'installed hello_rule'
 
 # 验证文件存在
 exists $HOME/.codebuddy/rules/hello_rule/hello_rule.md
+exists $HOME/.codebuddy/rules/hello_rule/.pbrew.json
 
 # codebuddy 安装内容：路径和变量应被替换
 exec cat $HOME/.codebuddy/rules/hello_rule/hello_rule.md

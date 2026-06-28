@@ -12,6 +12,7 @@ import (
 type GitSource struct {
 	url     string // Git repository URL
 	tempDir string // temporary clone directory
+	keep    bool   // if true, Close will NOT remove tempDir
 }
 
 // NewGitSource creates a GitSource for the given repository URL.
@@ -35,6 +36,12 @@ func (s *GitSource) Open() error {
 
 	s.tempDir = tmpDir
 	return nil
+}
+
+// Keep marks the temporary directory so it will NOT be removed on Close.
+// Call this after a successful publish so the user can cd in and git push.
+func (s *GitSource) Keep() {
+	s.keep = true
 }
 
 func (s *GitSource) Root() string { return s.tempDir }
@@ -64,9 +71,13 @@ func (s *GitSource) WriteDir(relPath string, files map[string][]byte) error {
 	return ls.WriteDir(relPath, files)
 }
 
-// Close removes the temporary clone directory.
+// Close removes the temporary clone directory, unless Keep() was called.
 func (s *GitSource) Close() error {
 	if s.tempDir == "" {
+		return nil
+	}
+	if s.keep {
+		s.tempDir = ""
 		return nil
 	}
 	err := os.RemoveAll(s.tempDir)
@@ -76,12 +87,23 @@ func (s *GitSource) Close() error {
 
 // IsGitURL checks whether a string looks like a Git URL.
 func IsGitURL(s string) bool {
-	return filepath.IsAbs(s) == false &&
-		(len(s) >= 4 && s[len(s)-4:] == ".git") ||
-		(len(s) >= 6 && s[:6] == "git://") ||
-		(len(s) >= 5 && s[:5] == "https") ||
-		(len(s) >= 4 && s[:4] == "ssh@") ||
-		(len(s) >= 4 && s[:4] == "git@")
+	return !filepath.IsAbs(s) && isGitURL(s)
+}
+
+func isGitURL(s string) bool {
+	if len(s) >= 4 && s[:4] == "git@" {
+		return true
+	}
+	if len(s) >= 5 && s[:5] == "https" {
+		return true
+	}
+	if len(s) >= 6 && s[:6] == "git://" {
+		return true
+	}
+	if len(s) >= 4 && s[len(s)-4:] == ".git" {
+		return true
+	}
+	return false
 }
 
 // OpenSource is a convenience function that detects the source type

@@ -8,6 +8,7 @@ stdout 'installed hello_skill'
 
 # 验证文件存在
 exists $HOME/.claude/skills/hello_skill/SKILL.md
+exists $HOME/.claude/skills/hello_skill/.pbrew.json
 
 # claude 安装内容：保留 when_to_use / disallowed-tools，变量保持原样
 exec cat $HOME/.claude/skills/hello_skill/SKILL.md
@@ -29,6 +30,7 @@ stdout 'installed hello_skill'
 
 # 验证文件存在
 exists $HOME/.codebuddy/skills/hello_skill/SKILL.md
+exists $HOME/.codebuddy/skills/hello_skill/.pbrew.json
 
 # codebuddy 安装内容：
 # - 跳过 when_to_use / disallowed-tools

@@ -46,7 +46,6 @@ If --version is not specified, the version is auto-incremented:
 		if err != nil {
 			return fmt.Errorf("open source: %w", err)
 		}
-		defer src.Close()
 
 		result, err := publisher.Publish(publisher.PublishParams{
 			Name:    publishName,
@@ -55,8 +54,16 @@ If --version is not specified, the version is auto-incremented:
 			Source:  src,
 		})
 		if err != nil {
+			src.Close()
 			return err
 		}
+
+		// For Git sources, keep the temp clone directory so the user can
+		// cd in and push. For local sources,	Close is a no-op either way.
+		if gs, ok := src.(*source.GitSource); ok {
+			gs.Keep()
+		}
+		src.Close()
 
 		fmt.Printf("published %s %s\n", result.Name, result.Version)
 		sourceRoot := src.Root()
